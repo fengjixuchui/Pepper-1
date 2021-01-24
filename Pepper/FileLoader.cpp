@@ -11,9 +11,9 @@
 ************************************************************/
 #include "stdafx.h"
 #include "FileLoader.h"
+#include "PepperDoc.h"
 #include "constants.h"
 #include <algorithm>
-#include "PepperDoc.h"
 
 HRESULT CFileLoader::LoadFile(LPCWSTR lpszFileName, CPepperDoc* pDoc)
 {
@@ -71,7 +71,7 @@ HRESULT CFileLoader::LoadFile(LPCWSTR lpszFileName, CPepperDoc* pDoc)
 	return S_OK;
 }
 
-HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelectionSize, IHexCtrl* pHexCtrl)
+HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelSize, IHexCtrl* pHexCtrl)
 {
 	if (!pHexCtrl)
 	{
@@ -82,11 +82,13 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelectionSize,
 
 	EHexDataMode enMode;
 	std::byte* pData;
-	if (m_fMapViewOfFileWhole) {
+	if (m_fMapViewOfFileWhole) 
+	{
 		enMode = EHexDataMode::DATA_MEMORY;
 		pData = static_cast<std::byte*>(m_lpBase);
 	}
-	else {
+	else 
+	{
 		enMode = EHexDataMode::DATA_MSG;
 		pData = nullptr;
 	}
@@ -95,9 +97,7 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelectionSize,
 	m_hds.pData = pData;
 	m_hds.ullDataSize = static_cast<ULONGLONG>(m_stFileSize.QuadPart);
 	m_hds.enDataMode = enMode;
-	m_hds.stSelSpan.ullOffset = ullOffset;
-	m_hds.stSelSpan.ullSize = ullSelectionSize;
-
+	
 	auto const& iter = std::find_if(m_vecQuery.begin(), m_vecQuery.end(),
 		[pHexCtrl](const QUERYDATA & r) {return r.hWnd == pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN); });
 
@@ -111,9 +111,7 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelectionSize,
 	//to ShowOffset or to ShowFilePiece. If the latter we reset it to show full file. 
 	if (fExist)
 	{
-		if (!iter->fShowPiece)
-			pHexCtrl->GoToOffset(ullOffset, true, ullSelectionSize);
-		else
+		if (iter->fShowPiece)
 		{
 			iter->ullOffsetDelta = 0;
 			iter->fShowPiece = false;
@@ -122,6 +120,14 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelectionSize,
 	}
 	else
 		pHexCtrl->SetData(m_hds);
+
+	if (ullSelSize > 0)
+	{
+		std::vector<HEXSPANSTRUCT> vecSel { { ullOffset, ullSelSize } };
+		pHexCtrl->SetSelection(vecSel);
+		if (!pHexCtrl->IsOffsetVisible(ullOffset))
+			pHexCtrl->GoToOffset(ullOffset);
+	}
 
 	//If floating HexCtrl in use - bring it to front.
 	if (pHexCtrl == m_pHex.get())
@@ -154,7 +160,7 @@ HRESULT CFileLoader::ShowFilePiece(ULONGLONG ullOffset, ULONGLONG ullSize, IHexC
 	std::byte* pData;
 	if (m_fMapViewOfFileWhole) {
 		enMode = EHexDataMode::DATA_MEMORY;
-		pData = (std::byte*)((DWORD_PTR)m_lpBase + ullOffset);
+		pData = reinterpret_cast<std::byte*>(reinterpret_cast<DWORD_PTR>(m_lpBase) + ullOffset);
 	}
 	else {
 		enMode = EHexDataMode::DATA_MSG;
@@ -177,7 +183,6 @@ HRESULT CFileLoader::ShowFilePiece(ULONGLONG ullOffset, ULONGLONG ullSize, IHexC
 	m_hds.pData = pData;
 	m_hds.ullDataSize = ullSize;
 	m_hds.enDataMode = enMode;
-	m_hds.stSelSpan.ullSize = 0;
 	pHexCtrl->SetData(m_hds);
 
 	return S_OK;
@@ -276,7 +281,7 @@ bool CFileLoader::IsLoaded()const
 
 BOOL CFileLoader::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 {
-	auto pHexNtfy = (PHEXNOTIFYSTRUCT)lParam;
+	auto pHexNtfy = reinterpret_cast<PHEXNOTIFYSTRUCT>(lParam);
 
 	switch (pHexNtfy->hdr.code)
 	{

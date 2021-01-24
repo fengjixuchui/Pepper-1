@@ -41,7 +41,7 @@ BOOL CChildFrame::OnCreateClient(LPCREATESTRUCT /*lpcs*/, CCreateContext* pConte
 	m_stSplitterMain.CreateStatic(this, 1, 2);
 	m_stSplitterMain.CreateView(0, 0, RUNTIME_CLASS(CViewLeft), CSize(rc.Width() / 5, rc.Height()), pContext);
 	m_stSplitterRight.CreateStatic(&m_stSplitterMain, 2, 1, WS_CHILD | WS_VISIBLE, m_stSplitterMain.IdFromRowCol(0, 1));
-
+	m_stSplitterMain.AddNested(0, 1, &m_stSplitterRight);
 	m_stSplitterRightTop.CreateStatic(&m_stSplitterRight, 1, 2, WS_CHILD | WS_VISIBLE, m_stSplitterRight.IdFromRowCol(0, 0));
 	m_stSplitterRightTop.CreateView(0, 0, RUNTIME_CLASS(CViewRightTL), CSize((rc.Width() - rc.Width() / 5) / 2, rc.Height()), pContext);
 	m_stSplitterRightTop.CreateView(0, 1, RUNTIME_CLASS(CViewRightTR), CSize((rc.Width() - rc.Width() / 5) / 2, rc.Height()), pContext);
@@ -57,7 +57,7 @@ BOOL CChildFrame::OnCreateClient(LPCREATESTRUCT /*lpcs*/, CCreateContext* pConte
 
 	m_fSplitterCreated = true;
 
-	auto pMainFrm = (CMainFrame*)AfxGetMainWnd();
+	auto pMainFrm = reinterpret_cast<CMainFrame*>(AfxGetMainWnd());
 	pMainFrm->GetChildFramesCount()++;
 
 	return TRUE;
@@ -75,7 +75,7 @@ void CChildFrame::OnMDIActivate(BOOL bActivate, CWnd* pActivateWnd, CWnd* pDeact
 
 void CChildFrame::OnClose()
 {
-	auto pMainFrm = (CMainFrame*)AfxGetMainWnd();
+	auto pMainFrm = reinterpret_cast<CMainFrame*>(AfxGetMainWnd());
 	--pMainFrm->GetChildFramesCount();
 	pMainFrm->SetCurrFramePtrNull();
 	m_vecWndStatus.clear();

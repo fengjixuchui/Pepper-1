@@ -19,18 +19,7 @@ BEGIN_MESSAGE_MAP(CViewRightTL, CView)
 	ON_NOTIFY(LVN_GETDISPINFOW, IDC_LIST_IMPORT, &CViewRightTL::OnListImportGetDispInfo)
 	ON_NOTIFY(LVN_GETDISPINFOW, IDC_LIST_RELOCATIONS, &CViewRightTL::OnListRelocsGetDispInfo)
 	ON_NOTIFY(LVN_GETDISPINFOW, IDC_LIST_EXCEPTIONS, &CViewRightTL::OnListExceptionsGetDispInfo)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_EXPORT, &CViewRightTL::OnListExportMenuSelect)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_IMPORT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_IMPORT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(NM_CLICK, IDC_LIST_IMPORT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LVN_COLUMNCLICK, IDC_LIST_IMPORT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_IAT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LVN_ITEMCHANGED, IDC_LIST_IAT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(NM_CLICK, IDC_LIST_IAT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LVN_COLUMNCLICK, IDC_LIST_IAT, &CViewRightTL::OnListImportNotify)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_TLS, &CViewRightTL::OnListTLSMenuSelect)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_BOUNDIMPORT, &CViewRightTL::OnListBoundImpMenuSelect)
-	ON_NOTIFY(LISTEX_MSG_MENUSELECTED, IDC_LIST_COMDESCRIPTOR, &CViewRightTL::OnListCOMDescMenuSelect)
+	ON_NOTIFY(LISTEX_MSG_GETTOOLTIP, IDC_LIST_SECHEADERS, &CViewRightTL::OnListSecHdrGetToolTip)
 	ON_NOTIFY(TVN_SELCHANGED, IDC_TREE_RESOURCE_TOP, &CViewRightTL::OnTreeResTopSelChange)
 	ON_WM_ERASEBKGND()
 END_MESSAGE_MAP()
@@ -39,8 +28,8 @@ void CViewRightTL::OnInitialUpdate()
 {
 	CView::OnInitialUpdate();
 
-	m_pChildFrame = (CChildFrame*)GetParentFrame();
-	m_pMainDoc = (CPepperDoc*)GetDocument();
+	m_pChildFrame = static_cast<CChildFrame*>(GetParentFrame());
+	m_pMainDoc = static_cast<CPepperDoc*>(GetDocument());
 	m_pLibpe = m_pMainDoc->m_pLibpe;
 	m_pFileLoader = &m_pMainDoc->m_stFileLoader;
 
@@ -285,6 +274,24 @@ BOOL CViewRightTL::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 	CView::OnNotify(wParam, lParam, pResult);
 
 	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(lParam);
+
+	//Menu for lists.
+	if (pNMI->hdr.code == NM_RCLICK && (
+		pNMI->hdr.idFrom == IDC_LIST_EXPORT || pNMI->hdr.idFrom == IDC_LIST_IMPORT
+		|| pNMI->hdr.idFrom == IDC_LIST_IAT || pNMI->hdr.idFrom == IDC_LIST_TLS
+		|| pNMI->hdr.idFrom == IDC_LIST_BOUNDIMPORT || pNMI->hdr.idFrom == IDC_LIST_COMDESCRIPTOR)
+		)
+	{
+		m_iListID = pNMI->hdr.idFrom;
+		m_iListItem = pNMI->iItem;
+		m_iListSubItem = pNMI->iSubItem;
+		POINT pt { };
+		GetCursorPos(&pt);
+		m_menuList.TrackPopupMenu(TPM_LEFTALIGN, pt.x, pt.y, this);
+
+		return TRUE;
+	}
+
 	switch (pNMI->hdr.idFrom)
 	{
 	case IDC_LIST_DOSHEADER:
@@ -314,6 +321,12 @@ BOOL CViewRightTL::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 	case IDC_LIST_SECHEADERS:
 		if (pNMI->hdr.code == LVN_ITEMCHANGED || pNMI->hdr.code == NM_CLICK)
 			m_pMainDoc->UpdateAllViews(this, MAKELPARAM(IDC_LIST_SECHEADERS_ENTRY, pNMI->iItem));
+		break;
+	case IDC_LIST_IMPORT:
+		if (pNMI->hdr.code == LVN_ITEMCHANGED || pNMI->hdr.code == NM_CLICK)
+			m_pMainDoc->UpdateAllViews(this, MAKELPARAM(IDC_LIST_IMPORT_ENTRY, pNMI->iItem));
+		else if (pNMI->hdr.code == LVN_COLUMNCLICK)
+			SortImportData();
 		break;
 	case IDC_LIST_EXCEPTIONS:
 		if (pNMI->hdr.code == LVN_ITEMCHANGED || pNMI->hdr.code == NM_CLICK)
@@ -347,6 +360,34 @@ BOOL CViewRightTL::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 	return TRUE;
 }
 
+BOOL CViewRightTL::OnCommand(WPARAM wParam, LPARAM lParam)
+{
+	const auto wMenuID = LOWORD(wParam);
+	switch (m_iListID)
+	{
+	case IDC_LIST_EXPORT:
+		OnListExportMenuSelect(wMenuID);
+		break;
+	case IDC_LIST_IMPORT:
+	case IDC_LIST_IAT:
+		OnListImportMenuSelect(wMenuID);
+		break;
+	case IDC_LIST_TLS:
+		OnListTLSMenuSelect(wMenuID);
+		break;
+	case IDC_LIST_BOUNDIMPORT:
+		OnListBoundImpMenuSelect(wMenuID);
+		break;
+	case IDC_LIST_COMDESCRIPTOR:
+		OnListCOMDescMenuSelect(wMenuID);
+		break;
+	default:
+		break;
+	}
+
+	return CView::OnCommand(wParam, lParam);
+}
+
 BOOL CViewRightTL::OnEraseBkgnd(CDC* /*pDC*/)
 {
 	return FALSE;
@@ -362,7 +403,7 @@ void CViewRightTL::OnSize(UINT nType, int cx, int cy)
 
 void CViewRightTL::OnListSectionsGetDispInfo(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 {
-	auto *pDispInfo = reinterpret_cast<NMLVDISPINFOW*>(pNMHDR);
+	auto* pDispInfo = reinterpret_cast<NMLVDISPINFOW*>(pNMHDR);
 	auto* pItem = &pDispInfo->item;
 
 	if (pItem->mask & LVIF_TEXT)
@@ -500,10 +541,74 @@ void CViewRightTL::OnListExceptionsGetDispInfo(NMHDR* pNMHDR, LRESULT* /*pResult
 	}
 }
 
-void CViewRightTL::OnListExportMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
+void CViewRightTL::OnListSecHdrGetToolTip(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 {
 	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 
+	if (pNMI->iSubItem != 10)
+		return;
+
+	static const std::map<DWORD, std::wstring> mapSecFlags {
+		{ 0x00000000, L"IMAGE_SCN_TYPE_REG\n Reserved." },
+		{ 0x00000001, L"IMAGE_SCN_TYPE_DSECT\n Reserved." },
+		{ 0x00000002, L"IMAGE_SCN_TYPE_NOLOAD\n Reserved." },
+		{ 0x00000004, L"IMAGE_SCN_TYPE_GROUP\n Reserved." },
+		{ IMAGE_SCN_TYPE_NO_PAD, L"IMAGE_SCN_TYPE_NO_PAD\n Reserved." },
+		{ 0x00000010, L"IMAGE_SCN_TYPE_COPY\n Reserved." },
+		{ IMAGE_SCN_CNT_CODE, L"IMAGE_SCN_CNT_CODE\n Section contains code." },
+		{ IMAGE_SCN_CNT_INITIALIZED_DATA, L"IMAGE_SCN_CNT_INITIALIZED_DATA\n Section contains initialized data." },
+		{ IMAGE_SCN_CNT_UNINITIALIZED_DATA, L"IMAGE_SCN_CNT_UNINITIALIZED_DATA\n Section contains uninitialized data." },
+		{ IMAGE_SCN_LNK_OTHER, L"IMAGE_SCN_LNK_OTHER\n Reserved." },
+		{ IMAGE_SCN_LNK_INFO, L"IMAGE_SCN_LNK_INFO\n Section contains comments or some other type of information." },
+		{ 0x00000400, L"IMAGE_SCN_TYPE_OVER\n Reserved." },
+		{ IMAGE_SCN_LNK_REMOVE, L"IMAGE_SCN_LNK_REMOVE\n Section contents will not become part of image." },
+		{ IMAGE_SCN_LNK_COMDAT, L"IMAGE_SCN_LNK_COMDAT\n Section contents comdat." },
+		{ IMAGE_SCN_NO_DEFER_SPEC_EXC, L"IMAGE_SCN_NO_DEFER_SPEC_EXC\n Reset speculative exceptions handling bits in the TLB entries for this section." },
+		{ IMAGE_SCN_GPREL, L"IMAGE_SCN_GPREL\n Section content can be accessed relative to GP" },
+		{ 0x00010000, L"IMAGE_SCN_MEM_SYSHEAP\n Obsolete" },
+		{ IMAGE_SCN_MEM_PURGEABLE, L"IMAGE_SCN_MEM_PURGEABLE" },
+		{ IMAGE_SCN_MEM_LOCKED, L"IMAGE_SCN_MEM_LOCKED" },
+		{ IMAGE_SCN_MEM_PRELOAD, L"IMAGE_SCN_MEM_PRELOAD" },
+		{ IMAGE_SCN_ALIGN_1BYTES, L"IMAGE_SCN_ALIGN_1BYTES" },
+		{ IMAGE_SCN_ALIGN_2BYTES, L"IMAGE_SCN_ALIGN_2BYTES" },
+		{ IMAGE_SCN_ALIGN_4BYTES, L"IMAGE_SCN_ALIGN_4BYTES" },
+		{ IMAGE_SCN_ALIGN_8BYTES, L"IMAGE_SCN_ALIGN_8BYTES" },
+		{ IMAGE_SCN_ALIGN_16BYTES, L"IMAGE_SCN_ALIGN_16BYTES\n Default alignment if no others are specified." },
+		{ IMAGE_SCN_ALIGN_32BYTES, L"IMAGE_SCN_ALIGN_32BYTES" },
+		{ IMAGE_SCN_ALIGN_64BYTES, L"IMAGE_SCN_ALIGN_64BYTES" },
+		{ IMAGE_SCN_ALIGN_128BYTES, L"IMAGE_SCN_ALIGN_128BYTES" },
+		{ IMAGE_SCN_ALIGN_256BYTES, L"IMAGE_SCN_ALIGN_256BYTES" },
+		{ IMAGE_SCN_ALIGN_512BYTES, L"IMAGE_SCN_ALIGN_512BYTES" },
+		{ IMAGE_SCN_ALIGN_1024BYTES, L"IMAGE_SCN_ALIGN_1024BYTES" },
+		{ IMAGE_SCN_ALIGN_2048BYTES, L"IMAGE_SCN_ALIGN_2048BYTES" },
+		{ IMAGE_SCN_ALIGN_4096BYTES, L"IMAGE_SCN_ALIGN_4096BYTES" },
+		{ IMAGE_SCN_ALIGN_8192BYTES, L"IMAGE_SCN_ALIGN_8192BYTES" },
+		{ IMAGE_SCN_ALIGN_MASK, L"IMAGE_SCN_ALIGN_MASK" },
+		{ IMAGE_SCN_LNK_NRELOC_OVFL, L"IMAGE_SCN_LNK_NRELOC_OVFL\n Section contains extended relocations." },
+		{ IMAGE_SCN_MEM_DISCARDABLE, L"IMAGE_SCN_MEM_DISCARDABLE\n Section can be discarded." },
+		{ IMAGE_SCN_MEM_NOT_CACHED, L"IMAGE_SCN_MEM_NOT_CACHED\n Section is not cachable." },
+		{ IMAGE_SCN_MEM_NOT_PAGED, L"IMAGE_SCN_MEM_NOT_PAGED\n Section is not pageable." },
+		{ IMAGE_SCN_MEM_SHARED, L"IMAGE_SCN_MEM_SHARED\n Section is shareable." },
+		{ IMAGE_SCN_MEM_EXECUTE, L"IMAGE_SCN_MEM_EXECUTE\n Section is executable." },
+		{ IMAGE_SCN_MEM_READ, L"IMAGE_SCN_MEM_READ\n Section is readable." },
+		{ IMAGE_SCN_MEM_WRITE, L"IMAGE_SCN_MEM_WRITE\n Section is writeable." }
+	};
+
+	std::wstring wstrTipText;
+	for (auto& flags : mapSecFlags)
+		if (flags.first & m_pSecHeaders->at(pNMI->iItem).stSecHdr.Characteristics)
+			wstrTipText += flags.second + L"\n";
+
+	if (!wstrTipText.empty())
+	{
+		static LISTEXTOOLTIP stTT { { }, L"Section Flags:" };
+		stTT.wstrText = wstrTipText;
+		pNMI->lParam = reinterpret_cast<LPARAM>(&stTT); //Tooltip pointer.
+	}
+}
+
+void CViewRightTL::OnListExportMenuSelect(WORD wMenuID)
+{
 	bool fx32 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE32);
 	bool fx64 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE64);
 	DWORD dwOffset { }, dwSize = 0;
@@ -512,7 +617,7 @@ void CViewRightTL::OnListExportMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 	if (m_pLibpe->GetExport(pExport) != S_OK)
 		return;
 
-	switch (pNMI->lParam)
+	switch (wMenuID)
 	{
 	case IDM_LIST_GOTODESCOFFSET:
 	{
@@ -522,7 +627,7 @@ void CViewRightTL::OnListExportMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 	break;
 	case IDM_LIST_GOTODATAOFFSET:
 	{
-		switch (pNMI->iItem)
+		switch (m_iListItem)
 		{
 		case 4: //Name
 			m_pLibpe->GetOffsetFromRVA(pExport->stExportDesc.Name, dwOffset);
@@ -549,66 +654,55 @@ void CViewRightTL::OnListExportMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 		m_pFileLoader->ShowOffset(dwOffset, dwSize);
 }
 
-void CViewRightTL::OnListImportNotify(NMHDR* pNMHDR, LRESULT* /*pResult*/)
+void CViewRightTL::OnListImportMenuSelect(WORD wMenuID)
 {
-	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
-
 	bool fx32 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE32);
 	bool fx64 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE64);
 	DWORD dwOffset { }, dwSize = 0;
 
-	if (pNMI->hdr.code == LVN_ITEMCHANGED || pNMI->hdr.code == NM_CLICK)
-		m_pMainDoc->UpdateAllViews(this, MAKELPARAM(IDC_LIST_IMPORT_ENTRY, pNMI->iItem));
-	else if (pNMI->hdr.code == LVN_COLUMNCLICK)
-		SortImportData();
-	else if (pNMI->hdr.code == LISTEX_MSG_MENUSELECTED)
+	switch (wMenuID)
 	{
-		switch (pNMI->lParam)
+	case IDM_LIST_GOTODESCOFFSET:
+		dwOffset = m_pImport->at(m_iListItem).dwOffsetImpDesc;
+		dwSize = sizeof(IMAGE_IMPORT_DESCRIPTOR);
+		break;
+	case IDM_LIST_GOTODATAOFFSET:
+		switch (m_iListSubItem)
 		{
-		case IDM_LIST_GOTODESCOFFSET:
-			dwOffset = m_pImport->at(pNMI->iItem).dwOffsetImpDesc;
-			dwSize = sizeof(IMAGE_IMPORT_DESCRIPTOR);
+		case 1: //Str dll name
+		case 5: //Name
+			m_pLibpe->GetOffsetFromRVA(m_pImport->at(m_iListItem).stImportDesc.Name, dwOffset);
+			dwSize = static_cast<DWORD>(m_pImport->at(m_iListItem).strModuleName.size());
+			break; ;
+		case 2: //OriginalFirstThunk 
+			m_pLibpe->GetOffsetFromRVA(m_pImport->at(m_iListItem).stImportDesc.OriginalFirstThunk, dwOffset);
+			if (fx32)
+				dwSize = sizeof(IMAGE_THUNK_DATA32);
+			else if (fx64)
+				dwSize = sizeof(IMAGE_THUNK_DATA64);
 			break;
-		case IDM_LIST_GOTODATAOFFSET:
-			switch (pNMI->iSubItem)
-			{
-			case 1: //Str dll name
-			case 5: //Name
-				m_pLibpe->GetOffsetFromRVA(m_pImport->at(pNMI->iItem).stImportDesc.Name, dwOffset);
-				dwSize = static_cast<DWORD>(m_pImport->at(pNMI->iItem).strModuleName.size());
-				break; ;
-			case 2: //OriginalFirstThunk 
-				m_pLibpe->GetOffsetFromRVA(m_pImport->at(pNMI->iItem).stImportDesc.OriginalFirstThunk, dwOffset);
-				if (fx32)
-					dwSize = sizeof(IMAGE_THUNK_DATA32);
-				else if (fx64)
-					dwSize = sizeof(IMAGE_THUNK_DATA64);
-				break;
-			case 3: //TimeDateStamp
-				break;
-			case 4: //ForwarderChain
-				m_pLibpe->GetOffsetFromRVA(m_pImport->at(pNMI->iItem).stImportDesc.ForwarderChain, dwOffset);
-				break;
-			case 6: //FirstThunk
-				m_pLibpe->GetOffsetFromRVA(m_pImport->at(pNMI->iItem).stImportDesc.FirstThunk, dwOffset);
-				if (fx32)
-					dwSize = sizeof(IMAGE_THUNK_DATA32);
-				else if (fx64)
-					dwSize = sizeof(IMAGE_THUNK_DATA64);
-				break;
-			}
+		case 3: //TimeDateStamp
+			break;
+		case 4: //ForwarderChain
+			m_pLibpe->GetOffsetFromRVA(m_pImport->at(m_iListItem).stImportDesc.ForwarderChain, dwOffset);
+			break;
+		case 6: //FirstThunk
+			m_pLibpe->GetOffsetFromRVA(m_pImport->at(m_iListItem).stImportDesc.FirstThunk, dwOffset);
+			if (fx32)
+				dwSize = sizeof(IMAGE_THUNK_DATA32);
+			else if (fx64)
+				dwSize = sizeof(IMAGE_THUNK_DATA64);
 			break;
 		}
+		break;
 	}
 
 	if (dwSize)
 		m_pFileLoader->ShowOffset(dwOffset, dwSize);
 }
 
-void CViewRightTL::OnListTLSMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
+void CViewRightTL::OnListTLSMenuSelect(WORD wMenuID)
 {
-	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
-
 	bool fx32 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE32);
 	bool fx64 = ImageHasFlag(m_dwFileInfo, IMAGE_FLAG_PE64);
 	DWORD dwOffset { }, dwSize = 0;
@@ -617,7 +711,7 @@ void CViewRightTL::OnListTLSMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 	if (m_pLibpe->GetTLS(pTLSDir) != S_OK)
 		return;
 
-	switch (pNMI->lParam)
+	switch (wMenuID)
 	{
 	case IDM_LIST_GOTODESCOFFSET:
 		dwOffset = pTLSDir->dwOffsetTLS;
@@ -637,7 +731,7 @@ void CViewRightTL::OnListTLSMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 		{
 			const IMAGE_TLS_DIRECTORY32* pTLSDir32 = &pTLSDir->varTLS.stTLSDir32;
 
-			switch (pNMI->iItem)
+			switch (m_iListItem)
 			{
 			case 0: //StartAddressOfRawData
 				m_pLibpe->GetOffsetFromVA(pTLSDir32->StartAddressOfRawData, dwOffset);
@@ -656,7 +750,7 @@ void CViewRightTL::OnListTLSMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 		{
 			const IMAGE_TLS_DIRECTORY64* pTLSDir64 = &pTLSDir->varTLS.stTLSDir64;
 
-			switch (pNMI->iItem)
+			switch (m_iListItem)
 			{
 			case 0: //StartAddressOfRawData
 				m_pLibpe->GetOffsetFromRVA(pTLSDir64->StartAddressOfRawData, dwOffset);
@@ -679,30 +773,29 @@ void CViewRightTL::OnListTLSMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 		m_pFileLoader->ShowOffset(dwOffset, dwSize);
 }
 
-void CViewRightTL::OnListBoundImpMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
+void CViewRightTL::OnListBoundImpMenuSelect(WORD wMenuID)
 {
-	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 	DWORD dwOffset { }, dwSize = 0;
 
 	PLIBPE_BOUNDIMPORT_VEC pBoundImp;
 	if (m_pLibpe->GetBoundImport(pBoundImp) != S_OK)
 		return;
 
-	switch (pNMI->lParam)
+	switch (wMenuID)
 	{
 	case IDM_LIST_GOTODESCOFFSET:
 	{
-		dwOffset = pBoundImp->at(pNMI->iItem).dwOffsetBoundImpDesc;
+		dwOffset = pBoundImp->at(m_iListItem).dwOffsetBoundImpDesc;
 		dwSize = sizeof(IMAGE_BOUND_IMPORT_DESCRIPTOR);
 	}
 	break;
 	case IDM_LIST_GOTODATAOFFSET:
 	{
-		switch (pNMI->iSubItem)
+		switch (m_iListSubItem)
 		{
 		case 3: //OffsetModuleName
-			dwOffset = m_pLibpe->GetOffsetFromRVA(pBoundImp->at(pNMI->iItem).stBoundImpDesc.OffsetModuleName, dwOffset);
-			dwSize = static_cast<DWORD>(pBoundImp->at(pNMI->iItem).strBoundName.size());
+			dwOffset = m_pLibpe->GetOffsetFromRVA(pBoundImp->at(m_iListItem).stBoundImpDesc.OffsetModuleName, dwOffset);
+			dwSize = static_cast<DWORD>(pBoundImp->at(m_iListItem).strBoundName.size());
 			break;
 		}
 	}
@@ -713,16 +806,15 @@ void CViewRightTL::OnListBoundImpMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
 		m_pFileLoader->ShowOffset(dwOffset, dwSize);
 }
 
-void CViewRightTL::OnListCOMDescMenuSelect(NMHDR* pNMHDR, LRESULT* /*pResult*/)
+void CViewRightTL::OnListCOMDescMenuSelect(WORD wMenuID)
 {
-	const auto pNMI = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 	DWORD dwOffset { }, dwSize = 0;
 
 	PLIBPE_COMDESCRIPTOR pCOMDesc;
 	if (m_pLibpe->GetCOMDescriptor(pCOMDesc) != S_OK)
 		return;
 
-	switch (pNMI->lParam)
+	switch (wMenuID)
 	{
 	case IDM_LIST_GOTODESCOFFSET:
 	{
@@ -783,11 +875,13 @@ int CViewRightTL::CreateListDOSHeader()
 	m_stlcs.uID = IDC_LIST_DOSHEADER;
 	m_listDOSHeader->Create(m_stlcs);
 	m_listDOSHeader->ShowWindow(SW_HIDE);
-	m_listDOSHeader->InsertColumn(0, L"Offset", LVCFMT_LEFT, 90);
+	m_listDOSHeader->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listDOSHeader->SetColumn(0, &stCol);
 	m_listDOSHeader->SetHdrColumnColor(0, g_clrOffset);
 	m_listDOSHeader->InsertColumn(1, L"Name", LVCFMT_CENTER, 150);
-	m_listDOSHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 100);
-	m_listDOSHeader->InsertColumn(3, L"Value", LVCFMT_LEFT, 100);
+	m_listDOSHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
+	m_listDOSHeader->InsertColumn(3, L"Value", LVCFMT_CENTER, 100);
 
 	m_dwPeStart = pDosHeader->e_lfanew;
 
@@ -799,7 +893,8 @@ int CViewRightTL::CreateListDOSHeader()
 		DWORD dwSize = ref.dwSize;
 
 		//Get a pointer to an offset and then take only needed amount of bytes (by &...).
-		DWORD dwValue = *((PDWORD)((DWORD_PTR)pDosHeader + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+		DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pDosHeader) + dwOffset)) &
+			(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 		if (i == 0)
 			dwValue = (dwValue & 0xFF00) >> 8 | (dwValue & 0xFF) << 8;
 
@@ -826,13 +921,15 @@ int CViewRightTL::CreateListRichHeader()
 	m_listRichHdr->Create(m_stlcs);
 	m_listRichHdr->ShowWindow(SW_HIDE);
 	m_listRichHdr->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listRichHdr->SetColumn(0, &stCol);
 	m_listRichHdr->SetHdrColumnColor(0, g_clrOffset);
 	m_listRichHdr->InsertColumn(1, L"\u2116", LVCFMT_CENTER, 35);
-	m_listRichHdr->InsertColumn(2, L"ID [Hex]", LVCFMT_LEFT, 100);
-	m_listRichHdr->InsertColumn(3, L"Version", LVCFMT_LEFT, 100);
-	m_listRichHdr->InsertColumn(4, L"Occurrences", LVCFMT_LEFT, 100);
-	m_listRichHdr->SetColumnSortMode(1, EListExSortMode::SORT_NUMERIC);
-	m_listRichHdr->SetColumnSortMode(4, EListExSortMode::SORT_NUMERIC);
+	m_listRichHdr->InsertColumn(2, L"ID [Hex]", LVCFMT_CENTER, 100);
+	m_listRichHdr->InsertColumn(3, L"Version", LVCFMT_CENTER, 100);
+	m_listRichHdr->InsertColumn(4, L"Occurrences", LVCFMT_CENTER, 100);
+	m_listRichHdr->SetColumnSortMode(1, true, EListExSortMode::SORT_NUMERIC);
+	m_listRichHdr->SetColumnSortMode(4, true, EListExSortMode::SORT_NUMERIC);
 
 	WCHAR wstr[18];
 	int listindex = 0;
@@ -865,11 +962,13 @@ int CViewRightTL::CreateListNTHeader()
 	m_stlcs.uID = IDC_LIST_NTHEADER;
 	m_listNTHeader->Create(m_stlcs);
 	m_listNTHeader->ShowWindow(SW_HIDE);
-	m_listNTHeader->InsertColumn(0, L"Offset", LVCFMT_LEFT, 90);
+	m_listNTHeader->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listNTHeader->SetColumn(0, &stCol);
 	m_listNTHeader->SetHdrColumnColor(0, g_clrOffset);
 	m_listNTHeader->InsertColumn(1, L"Name", LVCFMT_CENTER, 100);
-	m_listNTHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 100);
-	m_listNTHeader->InsertColumn(3, L"Value", LVCFMT_LEFT, 100);
+	m_listNTHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
+	m_listNTHeader->InsertColumn(3, L"Value", LVCFMT_CENTER, 100);
 
 	WCHAR wstr[9];
 	UINT listindex = 0;
@@ -921,11 +1020,13 @@ int CViewRightTL::CreateListFileHeader()
 	m_stlcs.uID = IDC_LIST_FILEHEADER;
 	m_listFileHeader->Create(m_stlcs);
 	m_listFileHeader->ShowWindow(SW_HIDE);
-	m_listFileHeader->InsertColumn(0, L"Offset", LVCFMT_LEFT, 90);
+	m_listFileHeader->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listFileHeader->SetColumn(0, &stCol);
 	m_listFileHeader->SetHdrColumnColor(0, g_clrOffset);
 	m_listFileHeader->InsertColumn(1, L"Name", LVCFMT_CENTER, 200);
-	m_listFileHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 100);
-	m_listFileHeader->InsertColumn(3, L"Value", LVCFMT_LEFT, 300);
+	m_listFileHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
+	m_listFileHeader->InsertColumn(3, L"Value", LVCFMT_CENTER, 300);
 
 	const std::map<WORD, std::wstring> mapMachineType {
 		TO_WSTR_MAP(IMAGE_FILE_MACHINE_UNKNOWN),
@@ -960,7 +1061,6 @@ int CViewRightTL::CreateListFileHeader()
 		TO_WSTR_MAP(IMAGE_FILE_MACHINE_ARM64),
 		TO_WSTR_MAP(IMAGE_FILE_MACHINE_CEE),
 	};
-
 	const std::map<WORD, std::wstring> mapCharacteristics {
 		TO_WSTR_MAP(IMAGE_FILE_RELOCS_STRIPPED),
 		TO_WSTR_MAP(IMAGE_FILE_EXECUTABLE_IMAGE),
@@ -985,7 +1085,7 @@ int CViewRightTL::CreateListFileHeader()
 		auto& ref = g_mapFileHeader.at(i);
 		DWORD dwOffset = ref.dwOffset;
 		DWORD dwSize = ref.dwSize;
-		DWORD dwValue = *((PDWORD)((DWORD_PTR)&pNTHdr->varHdr.stNTHdr32.FileHeader + dwOffset)) &
+		DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(&pNTHdr->varHdr.stNTHdr32.FileHeader) + dwOffset)) &
 			(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 		swprintf_s(wstr, 9, L"%08zX", pNTHdr->dwOffsetNTHdrDesc + offsetof(IMAGE_NT_HEADERS32, FileHeader) + dwOffset);
@@ -1038,11 +1138,13 @@ int CViewRightTL::CreateListOptHeader()
 	m_stlcs.uID = IDC_LIST_OPTIONALHEADER;
 	m_listOptHeader->Create(m_stlcs);
 	m_listOptHeader->ShowWindow(SW_HIDE);
-	m_listOptHeader->InsertColumn(0, L"Offset", LVCFMT_LEFT, 90);
+	m_listOptHeader->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listOptHeader->SetColumn(0, &stCol);
 	m_listOptHeader->SetHdrColumnColor(0, g_clrOffset);
 	m_listOptHeader->InsertColumn(1, L"Name", LVCFMT_CENTER, 215);
-	m_listOptHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 100);
-	m_listOptHeader->InsertColumn(3, L"Value", LVCFMT_LEFT, 140);
+	m_listOptHeader->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
+	m_listOptHeader->InsertColumn(3, L"Value", LVCFMT_CENTER, 140);
 
 	const std::map<WORD, std::wstring> mapSubSystem {
 		TO_WSTR_MAP(IMAGE_SUBSYSTEM_UNKNOWN),
@@ -1096,7 +1198,8 @@ int CViewRightTL::CreateListOptHeader()
 			auto& ref = g_mapOptHeader32.at(i);
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			DWORD dwValue = *((PDWORD)((DWORD_PTR)pOptHdr32 + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+			DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pOptHdr32) + dwOffset)) &
+				(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08zX", pNTHdr->dwOffsetNTHdrDesc + offsetof(IMAGE_NT_HEADERS32, OptionalHeader) + dwOffset);
 			m_listOptHeader->InsertItem(i, wstr);
@@ -1139,7 +1242,8 @@ int CViewRightTL::CreateListOptHeader()
 			auto& ref = g_mapOptHeader64.at(i);
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			ULONGLONG ullValue = *((PULONGLONG)((DWORD_PTR)pOptHdr64 + dwOffset)) & (ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
+			ULONGLONG ullValue = *(reinterpret_cast<PULONGLONG>(reinterpret_cast<DWORD_PTR>(pOptHdr64) + dwOffset)) &
+				(ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08zX", pNTHdr->dwOffsetNTHdrDesc + offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + dwOffset);
 			m_listOptHeader->InsertItem(i, wstr);
@@ -1191,12 +1295,14 @@ int CViewRightTL::CreateListDataDirectories()
 	m_stlcs.uID = IDC_LIST_DATADIRECTORIES;
 	m_listDataDirs->Create(m_stlcs);
 	m_listDataDirs->ShowWindow(SW_HIDE);
-	m_listDataDirs->InsertColumn(0, L"Offset", LVCFMT_LEFT, 90);
+	m_listDataDirs->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listDataDirs->SetColumn(0, &stCol);
 	m_listDataDirs->SetHdrColumnColor(0, g_clrOffset);
 	m_listDataDirs->InsertColumn(1, L"Name", LVCFMT_CENTER, 200);
-	m_listDataDirs->InsertColumn(2, L"Directory RVA", LVCFMT_LEFT, 100);
-	m_listDataDirs->InsertColumn(3, L"Directory Size", LVCFMT_LEFT, 100);
-	m_listDataDirs->InsertColumn(4, L"Resides in Section", LVCFMT_LEFT, 125);
+	m_listDataDirs->InsertColumn(2, L"Directory RVA", LVCFMT_CENTER, 100);
+	m_listDataDirs->InsertColumn(3, L"Directory Size", LVCFMT_CENTER, 100);
+	m_listDataDirs->InsertColumn(4, L"Resides in Section", LVCFMT_CENTER, 125);
 
 	WCHAR wstr[9];
 	DWORD dwDataDirsOffset { };
@@ -1240,79 +1346,20 @@ int CViewRightTL::CreateListSecHeaders()
 	m_listSecHeaders->Create(m_stlcs);
 	m_listSecHeaders->ShowWindow(SW_HIDE);
 	m_listSecHeaders->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listSecHeaders->SetColumn(0, &stCol);
 	m_listSecHeaders->SetHdrColumnColor(0, g_clrOffset);
 	m_listSecHeaders->InsertColumn(1, L"Name", LVCFMT_CENTER, 150);
-	m_listSecHeaders->InsertColumn(2, L"Virtual Size", LVCFMT_LEFT, 100);
-	m_listSecHeaders->InsertColumn(3, L"Virtual Address", LVCFMT_LEFT, 125);
-	m_listSecHeaders->InsertColumn(4, L"SizeOfRawData", LVCFMT_LEFT, 125);
-	m_listSecHeaders->InsertColumn(5, L"PointerToRawData", LVCFMT_LEFT, 125);
-	m_listSecHeaders->InsertColumn(6, L"PointerToRelocations", LVCFMT_LEFT, 150);
-	m_listSecHeaders->InsertColumn(7, L"PointerToLinenumbers", LVCFMT_LEFT, 160);
-	m_listSecHeaders->InsertColumn(8, L"NumberOfRelocations", LVCFMT_LEFT, 150);
-	m_listSecHeaders->InsertColumn(9, L"NumberOfLinenumbers", LVCFMT_LEFT, 160);
-	m_listSecHeaders->InsertColumn(10, L"Characteristics", LVCFMT_LEFT, 115);
+	m_listSecHeaders->InsertColumn(2, L"Virtual Size", LVCFMT_CENTER, 100);
+	m_listSecHeaders->InsertColumn(3, L"Virtual Address", LVCFMT_CENTER, 125);
+	m_listSecHeaders->InsertColumn(4, L"SizeOfRawData", LVCFMT_CENTER, 125);
+	m_listSecHeaders->InsertColumn(5, L"PointerToRawData", LVCFMT_CENTER, 125);
+	m_listSecHeaders->InsertColumn(6, L"PointerToRelocations", LVCFMT_CENTER, 150);
+	m_listSecHeaders->InsertColumn(7, L"PointerToLinenumbers", LVCFMT_CENTER, 160);
+	m_listSecHeaders->InsertColumn(8, L"NumberOfRelocations", LVCFMT_CENTER, 150);
+	m_listSecHeaders->InsertColumn(9, L"NumberOfLinenumbers", LVCFMT_CENTER, 160);
+	m_listSecHeaders->InsertColumn(10, L"Characteristics", LVCFMT_CENTER, 115);
 	m_listSecHeaders->SetItemCountEx(static_cast<int>(m_pSecHeaders->size()), LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
-
-	const std::map<DWORD, std::wstring> mapSecFlags {
-		{ 0x00000000, L"IMAGE_SCN_TYPE_REG\n Reserved." },
-		{ 0x00000001, L"IMAGE_SCN_TYPE_DSECT\n Reserved." },
-		{ 0x00000002, L"IMAGE_SCN_TYPE_NOLOAD\n Reserved." },
-		{ 0x00000004, L"IMAGE_SCN_TYPE_GROUP\n Reserved." },
-		{ IMAGE_SCN_TYPE_NO_PAD, L"IMAGE_SCN_TYPE_NO_PAD\n Reserved." },
-		{ 0x00000010, L"IMAGE_SCN_TYPE_COPY\n Reserved." },
-		{ IMAGE_SCN_CNT_CODE, L"IMAGE_SCN_CNT_CODE\n Section contains code." },
-		{ IMAGE_SCN_CNT_INITIALIZED_DATA, L"IMAGE_SCN_CNT_INITIALIZED_DATA\n Section contains initialized data." },
-		{ IMAGE_SCN_CNT_UNINITIALIZED_DATA, L"IMAGE_SCN_CNT_UNINITIALIZED_DATA\n Section contains uninitialized data." },
-		{ IMAGE_SCN_LNK_OTHER, L"IMAGE_SCN_LNK_OTHER\n Reserved." },
-		{ IMAGE_SCN_LNK_INFO, L"IMAGE_SCN_LNK_INFO\n Section contains comments or some other type of information." },
-		{ 0x00000400, L"IMAGE_SCN_TYPE_OVER\n Reserved." },
-		{ IMAGE_SCN_LNK_REMOVE, L"IMAGE_SCN_LNK_REMOVE\n Section contents will not become part of image." },
-		{ IMAGE_SCN_LNK_COMDAT, L"IMAGE_SCN_LNK_COMDAT\n Section contents comdat." },
-		{ IMAGE_SCN_NO_DEFER_SPEC_EXC, L"IMAGE_SCN_NO_DEFER_SPEC_EXC\n Reset speculative exceptions handling bits in the TLB entries for this section." },
-		{ IMAGE_SCN_GPREL, L"IMAGE_SCN_GPREL\n Section content can be accessed relative to GP" },
-		{ 0x00010000, L"IMAGE_SCN_MEM_SYSHEAP\n Obsolete" },
-		{ IMAGE_SCN_MEM_PURGEABLE, L"IMAGE_SCN_MEM_PURGEABLE" },
-		{ IMAGE_SCN_MEM_LOCKED, L"IMAGE_SCN_MEM_LOCKED" },
-		{ IMAGE_SCN_MEM_PRELOAD, L"IMAGE_SCN_MEM_PRELOAD" },
-		{ IMAGE_SCN_ALIGN_1BYTES, L"IMAGE_SCN_ALIGN_1BYTES" },
-		{ IMAGE_SCN_ALIGN_2BYTES, L"IMAGE_SCN_ALIGN_2BYTES" },
-		{ IMAGE_SCN_ALIGN_4BYTES, L"IMAGE_SCN_ALIGN_4BYTES" },
-		{ IMAGE_SCN_ALIGN_8BYTES, L"IMAGE_SCN_ALIGN_8BYTES" },
-		{ IMAGE_SCN_ALIGN_16BYTES, L"IMAGE_SCN_ALIGN_16BYTES\n Default alignment if no others are specified." },
-		{ IMAGE_SCN_ALIGN_32BYTES, L"IMAGE_SCN_ALIGN_32BYTES" },
-		{ IMAGE_SCN_ALIGN_64BYTES, L"IMAGE_SCN_ALIGN_64BYTES" },
-		{ IMAGE_SCN_ALIGN_128BYTES, L"IMAGE_SCN_ALIGN_128BYTES" },
-		{ IMAGE_SCN_ALIGN_256BYTES, L"IMAGE_SCN_ALIGN_256BYTES" },
-		{ IMAGE_SCN_ALIGN_512BYTES, L"IMAGE_SCN_ALIGN_512BYTES" },
-		{ IMAGE_SCN_ALIGN_1024BYTES, L"IMAGE_SCN_ALIGN_1024BYTES" },
-		{ IMAGE_SCN_ALIGN_2048BYTES, L"IMAGE_SCN_ALIGN_2048BYTES" },
-		{ IMAGE_SCN_ALIGN_4096BYTES, L"IMAGE_SCN_ALIGN_4096BYTES" },
-		{ IMAGE_SCN_ALIGN_8192BYTES, L"IMAGE_SCN_ALIGN_8192BYTES" },
-		{ IMAGE_SCN_ALIGN_MASK, L"IMAGE_SCN_ALIGN_MASK" },
-		{ IMAGE_SCN_LNK_NRELOC_OVFL, L"IMAGE_SCN_LNK_NRELOC_OVFL\n Section contains extended relocations." },
-		{ IMAGE_SCN_MEM_DISCARDABLE, L"IMAGE_SCN_MEM_DISCARDABLE\n Section can be discarded." },
-		{ IMAGE_SCN_MEM_NOT_CACHED, L"IMAGE_SCN_MEM_NOT_CACHED\n Section is not cachable." },
-		{ IMAGE_SCN_MEM_NOT_PAGED, L"IMAGE_SCN_MEM_NOT_PAGED\n Section is not pageable." },
-		{ IMAGE_SCN_MEM_SHARED, L"IMAGE_SCN_MEM_SHARED\n Section is shareable." },
-		{ IMAGE_SCN_MEM_EXECUTE, L"IMAGE_SCN_MEM_EXECUTE\n Section is executable." },
-		{ IMAGE_SCN_MEM_READ, L"IMAGE_SCN_MEM_READ\n Section is readable." },
-		{ IMAGE_SCN_MEM_WRITE, L"IMAGE_SCN_MEM_WRITE\n Section is writeable." }
-	};
-
-	UINT listindex = 0;
-	std::wstring wstrTipText;
-	for (auto& iterSecHdrs : *m_pSecHeaders)
-	{
-		for (auto& flags : mapSecFlags)
-			if (flags.first & iterSecHdrs.stSecHdr.Characteristics)
-				wstrTipText += flags.second + L"\n";
-		if (!wstrTipText.empty()) {
-			m_listSecHeaders->SetCellTooltip(listindex, 10, wstrTipText.data(), L"Section Flags:");
-			wstrTipText.clear();
-		}
-
-		listindex++;
-	}
 
 	return 0;
 }
@@ -1328,11 +1375,12 @@ int CViewRightTL::CreateListExport()
 	m_listExportDir->Create(m_stlcs);
 	m_listExportDir->ShowWindow(SW_HIDE);
 	m_listExportDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listExportDir->SetColumn(0, &stCol);
 	m_listExportDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listExportDir->InsertColumn(1, L"Name", LVCFMT_CENTER, 250);
-	m_listExportDir->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 100);
-	m_listExportDir->InsertColumn(3, L"Value", LVCFMT_LEFT, 300);
-	m_listExportDir->SetListMenu(&m_menuList);
+	m_listExportDir->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
+	m_listExportDir->InsertColumn(3, L"Value", LVCFMT_CENTER, 300);
 
 	const IMAGE_EXPORT_DIRECTORY * pExportDesc = &pExport->stExportDesc;
 	for (unsigned i = 0; i < g_mapExport.size(); i++)
@@ -1341,7 +1389,8 @@ int CViewRightTL::CreateListExport()
 		auto& ref = g_mapExport.at(i);
 		DWORD dwOffset = ref.dwOffset;
 		DWORD dwSize = ref.dwSize;
-		DWORD dwValue = *((PDWORD)((DWORD_PTR)pExportDesc + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+		DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pExportDesc) + dwOffset)) &
+			(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 		swprintf_s(wstr, 9, L"%08lX", pExport->dwOffsetExportDesc + dwOffset);
 		m_listExportDir->InsertItem(i, wstr);
@@ -1354,13 +1403,14 @@ int CViewRightTL::CreateListExport()
 		else
 			swprintf_s(wstr, 9, dwSize == 2 ? L"%04X" : L"%08X", dwValue);
 
+		m_listExportDir->SetItemText(i, 3, wstr);
+
 		if (i == 1 && pExportDesc->TimeDateStamp)
 		{
 			__time64_t time = pExportDesc->TimeDateStamp;
 			_wctime64_s(wstr, MAX_PATH, &time);
 			m_listExportDir->SetCellTooltip(i, 3, wstr, L"Time / Date:");
 		}
-		m_listExportDir->SetItemText(i, 3, wstr);
 	}
 
 	return 0;
@@ -1376,15 +1426,16 @@ int CViewRightTL::CreateListImport()
 	m_listImport->Create(m_stlcs);
 	m_listImport->ShowWindow(SW_HIDE);
 	m_listImport->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listImport->SetColumn(0, &stCol);
 	m_listImport->SetHdrColumnColor(0, g_clrOffset);
 	m_listImport->InsertColumn(1, L"Module Name (funcs number)", LVCFMT_CENTER, 300);
-	m_listImport->InsertColumn(2, L"OriginalFirstThunk\n(Import Lookup Table)", LVCFMT_LEFT, 170);
-	m_listImport->InsertColumn(3, L"TimeDateStamp", LVCFMT_LEFT, 115);
-	m_listImport->InsertColumn(4, L"ForwarderChain", LVCFMT_LEFT, 110);
-	m_listImport->InsertColumn(5, L"Name RVA", LVCFMT_LEFT, 90);
-	m_listImport->InsertColumn(6, L"FirstThunk (IAT)", LVCFMT_LEFT, 135);
+	m_listImport->InsertColumn(2, L"OriginalFirstThunk\n(Import Lookup Table)", LVCFMT_CENTER, 170);
+	m_listImport->InsertColumn(3, L"TimeDateStamp", LVCFMT_CENTER, 115);
+	m_listImport->InsertColumn(4, L"ForwarderChain", LVCFMT_CENTER, 110);
+	m_listImport->InsertColumn(5, L"Name RVA", LVCFMT_CENTER, 90);
+	m_listImport->InsertColumn(6, L"FirstThunk (IAT)", LVCFMT_CENTER, 135);
 	m_listImport->SetItemCountEx(static_cast<int>(m_pImport->size()), LVSICF_NOSCROLL);
-	m_listImport->SetListMenu(&m_menuList);
 
 	WCHAR wstr[MAX_PATH];
 	int listindex = 0;
@@ -1516,10 +1567,12 @@ int CViewRightTL::CreateListExceptions()
 	m_listExceptionDir->Create(m_stlcs);
 	m_listExceptionDir->ShowWindow(SW_HIDE);
 	m_listExceptionDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listExceptionDir->SetColumn(0, &stCol);
 	m_listExceptionDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listExceptionDir->InsertColumn(1, L"BeginAddress", LVCFMT_CENTER, 100);
-	m_listExceptionDir->InsertColumn(2, L"EndAddress", LVCFMT_LEFT, 100);
-	m_listExceptionDir->InsertColumn(3, L"UnwindData/InfoAddress", LVCFMT_LEFT, 180);
+	m_listExceptionDir->InsertColumn(2, L"EndAddress", LVCFMT_CENTER, 100);
+	m_listExceptionDir->InsertColumn(3, L"UnwindData/InfoAddress", LVCFMT_CENTER, 180);
 	m_listExceptionDir->SetItemCountEx(static_cast<int>(m_pExceptionDir->size()), LVSICF_NOSCROLL);
 
 	return 0;
@@ -1536,10 +1589,12 @@ int CViewRightTL::CreateListSecurity()
 	m_listSecurityDir->Create(m_stlcs);
 	m_listSecurityDir->ShowWindow(SW_HIDE);
 	m_listSecurityDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listSecurityDir->SetColumn(0, &stCol);
 	m_listSecurityDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listSecurityDir->InsertColumn(1, L"dwLength", LVCFMT_CENTER, 100);
-	m_listSecurityDir->InsertColumn(2, L"wRevision", LVCFMT_LEFT, 100);
-	m_listSecurityDir->InsertColumn(3, L"wCertificateType", LVCFMT_LEFT, 180);
+	m_listSecurityDir->InsertColumn(2, L"wRevision", LVCFMT_CENTER, 100);
+	m_listSecurityDir->InsertColumn(3, L"wCertificateType", LVCFMT_CENTER, 180);
 
 	const std::map<WORD, std::wstring> mapSertRevision {
 		TO_WSTR_MAP(WIN_CERT_REVISION_1_0),
@@ -1594,10 +1649,12 @@ int CViewRightTL::CreateListRelocations()
 	m_listRelocDir->Create(m_stlcs);
 	m_listRelocDir->ShowWindow(SW_HIDE);
 	m_listRelocDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listRelocDir->SetColumn(0, &stCol);
 	m_listRelocDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listRelocDir->InsertColumn(1, L"Virtual Address", LVCFMT_CENTER, 115);
-	m_listRelocDir->InsertColumn(2, L"Block Size", LVCFMT_LEFT, 100);
-	m_listRelocDir->InsertColumn(3, L"Entries", LVCFMT_LEFT, 100);
+	m_listRelocDir->InsertColumn(2, L"Block Size", LVCFMT_CENTER, 100);
+	m_listRelocDir->InsertColumn(3, L"Entries", LVCFMT_CENTER, 100);
 	m_listRelocDir->SetItemCountEx(static_cast<int>(m_pRelocTable->size()), LVSICF_NOSCROLL);
 
 	return 0;
@@ -1614,15 +1671,17 @@ int CViewRightTL::CreateListDebug()
 	m_listDebugDir->Create(m_stlcs);
 	m_listDebugDir->ShowWindow(SW_HIDE);
 	m_listDebugDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listDebugDir->SetColumn(0, &stCol);
 	m_listDebugDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listDebugDir->InsertColumn(1, L"Characteristics", LVCFMT_CENTER, 115);
-	m_listDebugDir->InsertColumn(2, L"TimeDateStamp", LVCFMT_LEFT, 150);
-	m_listDebugDir->InsertColumn(3, L"MajorVersion", LVCFMT_LEFT, 100);
-	m_listDebugDir->InsertColumn(4, L"MinorVersion", LVCFMT_LEFT, 100);
-	m_listDebugDir->InsertColumn(5, L"Type", LVCFMT_LEFT, 90);
-	m_listDebugDir->InsertColumn(6, L"SizeOfData", LVCFMT_LEFT, 100);
-	m_listDebugDir->InsertColumn(7, L"AddressOfRawData", LVCFMT_LEFT, 170);
-	m_listDebugDir->InsertColumn(8, L"PointerToRawData", LVCFMT_LEFT, 140);
+	m_listDebugDir->InsertColumn(2, L"TimeDateStamp", LVCFMT_CENTER, 150);
+	m_listDebugDir->InsertColumn(3, L"MajorVersion", LVCFMT_CENTER, 100);
+	m_listDebugDir->InsertColumn(4, L"MinorVersion", LVCFMT_CENTER, 100);
+	m_listDebugDir->InsertColumn(5, L"Type", LVCFMT_CENTER, 90);
+	m_listDebugDir->InsertColumn(6, L"SizeOfData", LVCFMT_CENTER, 100);
+	m_listDebugDir->InsertColumn(7, L"AddressOfRawData", LVCFMT_CENTER, 170);
+	m_listDebugDir->InsertColumn(8, L"PointerToRawData", LVCFMT_CENTER, 140);
 
 	const std::map<DWORD, std::wstring> mapDebugType {
 		TO_WSTR_MAP(IMAGE_DEBUG_TYPE_UNKNOWN),
@@ -1695,11 +1754,12 @@ int CViewRightTL::CreateListTLS()
 	m_listTLSDir->Create(m_stlcs);
 	m_listTLSDir->ShowWindow(SW_HIDE);
 	m_listTLSDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listTLSDir->SetColumn(0, &stCol);
 	m_listTLSDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listTLSDir->InsertColumn(1, L"Name", LVCFMT_CENTER, 250);
-	m_listTLSDir->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 110);
-	m_listTLSDir->InsertColumn(3, L"Value", LVCFMT_LEFT, 150);
-	m_listTLSDir->SetListMenu(&m_menuList);
+	m_listTLSDir->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 110);
+	m_listTLSDir->InsertColumn(3, L"Value", LVCFMT_CENTER, 150);
 
 	const std::map<DWORD, std::wstring> mapCharact {
 		TO_WSTR_MAP(IMAGE_SCN_ALIGN_1BYTES),
@@ -1728,7 +1788,8 @@ int CViewRightTL::CreateListTLS()
 			auto& ref = g_mapTLS32.at(i);
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			DWORD dwValue = *((PDWORD)((DWORD_PTR)pTLSDir32 + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+			DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pTLSDir32) + dwOffset)) &
+				(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08lX", pTLSDir->dwOffsetTLS + dwOffset);
 			m_listTLSDir->InsertItem(i, wstr);
@@ -1753,7 +1814,8 @@ int CViewRightTL::CreateListTLS()
 			auto& ref = g_mapTLS64.at(i);
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			ULONGLONG ullValue = *((PULONGLONG)((DWORD_PTR)pTLSDir64 + dwOffset)) & (ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
+			ULONGLONG ullValue = *(reinterpret_cast<PULONGLONG>(reinterpret_cast<DWORD_PTR>(pTLSDir64) + dwOffset)) &
+				(ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08lX", pTLSDir->dwOffsetTLS + dwOffset);
 			m_listTLSDir->InsertItem(i, wstr);
@@ -1785,10 +1847,12 @@ int CViewRightTL::CreateListLCD()
 	m_listLCD->Create(m_stlcs);
 	m_listLCD->ShowWindow(SW_HIDE);
 	m_listLCD->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listLCD->SetColumn(0, &stCol);
 	m_listLCD->SetHdrColumnColor(0, g_clrOffset);
 	m_listLCD->InsertColumn(1, L"Name", LVCFMT_CENTER, 330);
-	m_listLCD->InsertColumn(2, L"Size [BYTES]", LVCFMT_LEFT, 110);
-	m_listLCD->InsertColumn(3, L"Value", LVCFMT_LEFT, 300);
+	m_listLCD->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 110);
+	m_listLCD->InsertColumn(3, L"Value", LVCFMT_CENTER, 300);
 
 	const std::map<WORD, std::wstring> mapGuardFlags {
 		{ IMAGE_GUARD_CF_INSTRUMENTED, L"IMAGE_GUARD_CF_INSTRUMENTED\n Module performs control flow integrity checks using system-supplied support" },
@@ -1820,7 +1884,8 @@ int CViewRightTL::CreateListLCD()
 
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			DWORD dwValue = *((PDWORD)((DWORD_PTR)pLCD32 + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+			DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pLCD32) + dwOffset)) &
+				(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08lX", pLCD->dwOffsetLCD + dwOffset);
 			m_listLCD->InsertItem(i, wstr);
@@ -1860,7 +1925,8 @@ int CViewRightTL::CreateListLCD()
 
 			DWORD dwOffset = ref.dwOffset;
 			DWORD dwSize = ref.dwSize;
-			ULONGLONG ullValue = *((PULONGLONG)((DWORD_PTR)pLCD64 + dwOffset)) & (ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
+			ULONGLONG ullValue = *(reinterpret_cast<PULONGLONG>(reinterpret_cast<DWORD_PTR>(pLCD64) + dwOffset)) &
+				(ULONGLONG_MAX >> ((sizeof(ULONGLONG) - dwSize) * 8));
 
 			swprintf_s(wstr, 9, L"%08lX", pLCD->dwOffsetLCD + dwOffset);
 			m_listLCD->InsertItem(i, wstr);
@@ -1904,12 +1970,13 @@ int CViewRightTL::CreateListBoundImport()
 	m_listBoundImportDir->Create(m_stlcs);
 	m_listBoundImportDir->ShowWindow(SW_HIDE);
 	m_listBoundImportDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listBoundImportDir->SetColumn(0, &stCol);
 	m_listBoundImportDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listBoundImportDir->InsertColumn(1, L"Module Name", LVCFMT_CENTER, 290);
-	m_listBoundImportDir->InsertColumn(2, L"TimeDateStamp", LVCFMT_LEFT, 130);
-	m_listBoundImportDir->InsertColumn(3, L"OffsetModuleName", LVCFMT_LEFT, 140);
-	m_listBoundImportDir->InsertColumn(4, L"NumberOfModuleForwarderRefs", LVCFMT_LEFT, 220);
-	m_listBoundImportDir->SetListMenu(&m_menuList);
+	m_listBoundImportDir->InsertColumn(2, L"TimeDateStamp", LVCFMT_CENTER, 130);
+	m_listBoundImportDir->InsertColumn(3, L"OffsetModuleName", LVCFMT_CENTER, 140);
+	m_listBoundImportDir->InsertColumn(4, L"NumberOfModuleForwarderRefs", LVCFMT_CENTER, 220);
 
 	WCHAR wstr[MAX_PATH];
 	int listindex = 0;
@@ -1952,16 +2019,18 @@ int CViewRightTL::CreateListDelayImport()
 	m_listDelayImportDir->Create(m_stlcs);
 	m_listDelayImportDir->ShowWindow(SW_HIDE);
 	m_listDelayImportDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listDelayImportDir->SetColumn(0, &stCol);
 	m_listDelayImportDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listDelayImportDir->InsertColumn(1, L"Module Name (funcs number)", LVCFMT_CENTER, 260);
-	m_listDelayImportDir->InsertColumn(2, L"Attributes", LVCFMT_LEFT, 100);
-	m_listDelayImportDir->InsertColumn(3, L"DllNameRVA", LVCFMT_LEFT, 105);
-	m_listDelayImportDir->InsertColumn(4, L"ModuleHandleRVA", LVCFMT_LEFT, 140);
-	m_listDelayImportDir->InsertColumn(5, L"ImportAddressTableRVA", LVCFMT_LEFT, 160);
-	m_listDelayImportDir->InsertColumn(6, L"ImportNameTableRVA", LVCFMT_LEFT, 150);
-	m_listDelayImportDir->InsertColumn(7, L"BoundImportAddressTableRVA", LVCFMT_LEFT, 200);
-	m_listDelayImportDir->InsertColumn(8, L"UnloadInformationTableRVA", LVCFMT_LEFT, 190);
-	m_listDelayImportDir->InsertColumn(9, L"TimeDateStamp", LVCFMT_LEFT, 115);
+	m_listDelayImportDir->InsertColumn(2, L"Attributes", LVCFMT_CENTER, 100);
+	m_listDelayImportDir->InsertColumn(3, L"DllNameRVA", LVCFMT_CENTER, 105);
+	m_listDelayImportDir->InsertColumn(4, L"ModuleHandleRVA", LVCFMT_CENTER, 140);
+	m_listDelayImportDir->InsertColumn(5, L"ImportAddressTableRVA", LVCFMT_CENTER, 160);
+	m_listDelayImportDir->InsertColumn(6, L"ImportNameTableRVA", LVCFMT_CENTER, 150);
+	m_listDelayImportDir->InsertColumn(7, L"BoundImportAddressTableRVA", LVCFMT_CENTER, 200);
+	m_listDelayImportDir->InsertColumn(8, L"UnloadInformationTableRVA", LVCFMT_CENTER, 190);
+	m_listDelayImportDir->InsertColumn(9, L"TimeDateStamp", LVCFMT_CENTER, 115);
 
 	int listindex = 0;
 	WCHAR wstr[MAX_PATH];
@@ -2013,11 +2082,12 @@ int CViewRightTL::CreateListCOM()
 	m_listCOMDir->Create(m_stlcs);
 	m_listCOMDir->ShowWindow(SW_HIDE);
 	m_listCOMDir->InsertColumn(0, L"Offset", LVCFMT_CENTER, 90);
+	LVCOLUMNW stCol { LVCF_FMT, LVCFMT_CENTER };
+	m_listCOMDir->SetColumn(0, &stCol);
 	m_listCOMDir->SetHdrColumnColor(0, g_clrOffset);
 	m_listCOMDir->InsertColumn(1, L"Name", LVCFMT_CENTER, 300);
 	m_listCOMDir->InsertColumn(2, L"Size [BYTES]", LVCFMT_CENTER, 100);
-	m_listCOMDir->InsertColumn(3, L"Value", LVCFMT_LEFT, 300);
-	m_listCOMDir->SetListMenu(&m_menuList);
+	m_listCOMDir->InsertColumn(3, L"Value", LVCFMT_CENTER, 300);
 
 	const std::map<DWORD, std::wstring> mapFlags {
 		{ ReplacesCorHdrNumericDefines::COMIMAGE_FLAGS_ILONLY, L"COMIMAGE_FLAGS_ILONLY" },
@@ -2037,7 +2107,8 @@ int CViewRightTL::CreateListCOM()
 		auto& ref = g_mapComDir.at(i);
 		DWORD dwOffset = ref.dwOffset;
 		DWORD dwSize = ref.dwSize;
-		DWORD dwValue = *((PDWORD)((DWORD_PTR)pCom + dwOffset)) & (DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
+		DWORD dwValue = *(reinterpret_cast<PDWORD>(reinterpret_cast<DWORD_PTR>(pCom) + dwOffset)) &
+			(DWORD_MAX >> ((sizeof(DWORD) - dwSize) * 8));
 
 		swprintf_s(wstr, 9, L"%08lX", pCOMDesc->dwOffsetComDesc + dwOffset);
 		m_listCOMDir->InsertItem(i, wstr);
