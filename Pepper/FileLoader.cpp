@@ -1,18 +1,15 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
 * libpe - Windows library for reading PE (x86) and PE+ (x64) files inner structure information.		*
 * https://github.com/jovibor/libpe																	*
 ****************************************************************************************************/
-/************************************************************
-* CFileLoader implementation.								*
-************************************************************/
 #include "stdafx.h"
 #include "FileLoader.h"
 #include "PepperDoc.h"
-#include "constants.h"
+#include "Utility.h"
 #include <algorithm>
 
 HRESULT CFileLoader::LoadFile(LPCWSTR lpszFileName, CPepperDoc* pDoc)
@@ -64,8 +61,9 @@ HRESULT CFileLoader::LoadFile(LPCWSTR lpszFileName, CPepperDoc* pDoc)
 	m_hcs.enCreateMode = EHexCreateMode::CREATE_POPUP;
 	m_hcs.hwndParent = m_hWnd;
 	m_hcs.dwExStyle = WS_EX_APPWINDOW; //To force to the taskbar.
-
-	m_hds.hwndMsg = m_hWnd;
+	const auto iPosX = GetSystemMetrics(SM_CXSCREEN) / 4;
+	const auto iPosY = GetSystemMetrics(SM_CYSCREEN) / 4;
+	m_hcs.rect = { iPosX, iPosY, iPosX * 3, iPosY * 3 };
 	m_hds.fMutable = m_pMainDoc->IsEditMode();
 
 	return S_OK;
@@ -80,26 +78,18 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelSize, IHexC
 		pHexCtrl = m_pHex.get();
 	}
 
-	EHexDataMode enMode;
 	std::byte* pData;
-	if (m_fMapViewOfFileWhole) 
-	{
-		enMode = EHexDataMode::DATA_MEMORY;
+	if (m_fMapViewOfFileWhole)
 		pData = static_cast<std::byte*>(m_lpBase);
-	}
-	else 
-	{
-		enMode = EHexDataMode::DATA_MSG;
-		pData = nullptr;
-	}
+	else
+		m_hds.pHexVirtData = this;
 
 	m_hds.fMutable = m_pMainDoc->IsEditMode();
 	m_hds.pData = pData;
 	m_hds.ullDataSize = static_cast<ULONGLONG>(m_stFileSize.QuadPart);
-	m_hds.enDataMode = enMode;
-	
+
 	auto const& iter = std::find_if(m_vecQuery.begin(), m_vecQuery.end(),
-		[pHexCtrl](const QUERYDATA & r) {return r.hWnd == pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN); });
+		[pHexCtrl](const QUERYDATA& r) {return r.hWnd == pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN); });
 
 	bool fExist { false };
 	if (iter == m_vecQuery.end())
@@ -123,7 +113,7 @@ HRESULT CFileLoader::ShowOffset(ULONGLONG ullOffset, ULONGLONG ullSelSize, IHexC
 
 	if (ullSelSize > 0)
 	{
-		std::vector<HEXSPANSTRUCT> vecSel { { ullOffset, ullSelSize } };
+		std::vector<HEXSPAN> vecSel { { ullOffset, ullSelSize } };
 		pHexCtrl->SetSelection(vecSel);
 		if (!pHexCtrl->IsOffsetVisible(ullOffset))
 			pHexCtrl->GoToOffset(ullOffset);
@@ -156,20 +146,18 @@ HRESULT CFileLoader::ShowFilePiece(ULONGLONG ullOffset, ULONGLONG ullSize, IHexC
 	if (ullOffset + ullSize > static_cast<ULONGLONG>(m_stFileSize.QuadPart)) //Overflow check.
 		ullSize = static_cast<ULONGLONG>(m_stFileSize.QuadPart) - ullOffset;
 
-	EHexDataMode enMode;
 	std::byte* pData;
-	if (m_fMapViewOfFileWhole) {
-		enMode = EHexDataMode::DATA_MEMORY;
+	if (m_fMapViewOfFileWhole)
+	{
+		m_hds.pHexVirtData = nullptr;
 		pData = reinterpret_cast<std::byte*>(reinterpret_cast<DWORD_PTR>(m_lpBase) + ullOffset);
 	}
-	else {
-		enMode = EHexDataMode::DATA_MSG;
-		pData = nullptr;
-	}
+	else
+		m_hds.pHexVirtData = this;
 
 	//Checking for given HWND existence in m_vecQuery. If there is no, create.
 	auto const& iter = std::find_if(m_vecQuery.begin(), m_vecQuery.end(),
-		[pHexCtrl](const QUERYDATA & rData) {return rData.hWnd == pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN); });
+		[pHexCtrl](const QUERYDATA& rData) {return rData.hWnd == pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN); });
 
 	if (iter == m_vecQuery.end())
 		m_vecQuery.emplace_back(QUERYDATA { pHexCtrl->GetWindowHandle(EHexWnd::WND_MAIN), 0, 0, ullOffset, 0, nullptr, true });
@@ -182,13 +170,12 @@ HRESULT CFileLoader::ShowFilePiece(ULONGLONG ullOffset, ULONGLONG ullSize, IHexC
 	m_hds.fMutable = m_pMainDoc->IsEditMode();
 	m_hds.pData = pData;
 	m_hds.ullDataSize = ullSize;
-	m_hds.enDataMode = enMode;
 	pHexCtrl->SetData(m_hds);
 
 	return S_OK;
 }
 
-HRESULT CFileLoader::MapFileOffset(QUERYDATA & rData, ULONGLONG ullOffset, DWORD dwSize)
+HRESULT CFileLoader::MapFileOffset(QUERYDATA& rData, ULONGLONG ullOffset, DWORD dwSize)
 {
 	UnmapFileOffset(rData);
 
@@ -281,9 +268,9 @@ bool CFileLoader::IsLoaded()const
 
 BOOL CFileLoader::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 {
-	auto pHexNtfy = reinterpret_cast<PHEXNOTIFYSTRUCT>(lParam);
+	auto pHdr = reinterpret_cast<NMHDR*>(lParam);
 
-	switch (pHexNtfy->hdr.code)
+	switch (pHdr->code)
 	{
 	case HEXCTRL_MSG_DESTROY:
 	{
@@ -291,32 +278,26 @@ BOOL CFileLoader::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 		{
 			//Look for given HWND in m_vecQuery and if exist Unmap all its data.
 			auto const& iter = std::find_if(m_vecQuery.begin(), m_vecQuery.end(),
-				[pHexNtfy](const QUERYDATA & rData) { return rData.hWnd == pHexNtfy->hdr.hwndFrom; });
+				[pHdr](const QUERYDATA& rData) { return rData.hWnd == pHdr->hwndFrom; });
 			if (iter != m_vecQuery.end())
 				UnmapFileOffset(*iter);
 		}
 	}
 	break;
-	case HEXCTRL_MSG_GETDATA:
-		pHexNtfy->pData = GetData(pHexNtfy->hdr.hwndFrom, pHexNtfy->stSpan.ullOffset);
-		break;
-	case HEXCTRL_MSG_SETDATA:
-		m_fModified = true;
-		break;
 	}
 
 	return CWnd::OnNotify(wParam, lParam, pResult);
 }
 
-std::byte* CFileLoader::GetData(HWND hWnd, ULONGLONG ullOffset)
+void CFileLoader::OnHexGetData(HEXDATAINFO& hdi)
 {
 	auto const& iter = std::find_if(m_vecQuery.begin(), m_vecQuery.end(),
-		[hWnd](const QUERYDATA & rData) {return rData.hWnd == hWnd; });
+		[hWnd=hdi.hdr.hwndFrom](const QUERYDATA& rData) {return rData.hWnd == hWnd; });
 	if (iter == m_vecQuery.end())
-		return nullptr;
+		return;
 
 	std::byte* pData { };
-	ullOffset += iter->ullOffsetDelta;
+	auto ullOffset = hdi.stSpan.ullOffset + iter->ullOffsetDelta;
 
 	if (m_fMapViewOfFileWhole && ullOffset < static_cast<ULONGLONG>(m_stFileSize.QuadPart))
 		pData = (static_cast<std::byte*>(m_lpBase)) + ullOffset;
@@ -331,5 +312,10 @@ std::byte* CFileLoader::GetData(HWND hWnd, ULONGLONG ullOffset)
 		}
 	}
 
-	return pData;
+	hdi.pData = pData;
+}
+
+void CFileLoader::OnHexSetData(const HEXDATAINFO& hdi)
+{
+	m_fModified = true;
 }

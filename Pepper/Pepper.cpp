@@ -1,5 +1,5 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
@@ -11,7 +11,7 @@
 #include "MainFrm.h"
 #include "Pepper.h"
 #include "PepperDoc.h"
-#include "constants.h"
+#include "Utility.h"
 #include "res/resource.h"
 
 class CAboutDlg : public CDialogEx
@@ -29,7 +29,7 @@ BOOL CAboutDlg::OnInitDialog()
 	std::wstring wstrlibpeVer = L"libpe - PE/PE+ binaries library v";
 	wstrlibpeVer += libpeInfo()->pwszVersion;
 	GetDlgItem(IDC_LINK_LIBPE)->SetWindowTextW(wstrlibpeVer.data());
-	wstrlibpeVer = L"HexCtrl - Hex Control for MFC/Win32 v";
+	wstrlibpeVer = L"HexCtrl - ";
 	wstrlibpeVer += GetHexCtrlInfo()->pwszVersion;
 	GetDlgItem(IDC_LINK_HEXCTRL)->SetWindowTextW(wstrlibpeVer.data());
 
@@ -46,6 +46,11 @@ END_MESSAGE_MAP()
 CPepperApp::CPepperApp()
 {
 	m_bHiColorIcons = TRUE;
+}
+
+void CPepperApp::OpenNewFile()
+{
+	OnFileOpen();
 }
 
 BOOL CPepperApp::InitInstance()
@@ -123,8 +128,7 @@ void CPepperApp::OnAppAbout()
 
 void CPepperApp::OnFileOpen()
 {
-	CFileDialog fd(TRUE, nullptr, nullptr,
-		OFN_OVERWRITEPROMPT | OFN_EXPLORER | OFN_ALLOWMULTISELECT |
+	CFileDialog fd(TRUE, nullptr, nullptr, OFN_OVERWRITEPROMPT | OFN_EXPLORER | OFN_ALLOWMULTISELECT |
 		OFN_DONTADDTORECENT | OFN_ENABLESIZING | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST, L"All files (*.*)|*.*||");
 
 	if (fd.DoModal() == IDOK)
@@ -133,17 +137,21 @@ void CPepperApp::OnFileOpen()
 		CComPtr<IShellItemArray> pResults;
 		pIFOD->GetResults(&pResults);
 
+		bool fOpened { false };
 		DWORD dwCount { };
 		pResults->GetCount(&dwCount);
-		for (unsigned i = 0; i < dwCount; i++)
+		for (auto i = 0U; i < dwCount; ++i)
 		{
 			CComPtr<IShellItem> pItem;
 			pResults->GetItemAt(i, &pItem);
 			CComHeapPtr<wchar_t> pwstrPath;
 			pItem->GetDisplayName(SIGDN_FILESYSPATH, &pwstrPath);
-
-			CWinAppEx::OpenDocumentFile(pwstrPath);
+			const auto pDoc = CWinAppEx::OpenDocumentFile(pwstrPath);
+			fOpened = !fOpened ? pDoc != nullptr : true;
 		}
+		//In case no file has been opened (if multiple selection) we show the open file dialog again.
+		if (!fOpened)
+			OnFileOpen();
 	}
 }
 

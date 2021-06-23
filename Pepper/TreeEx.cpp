@@ -1,5 +1,5 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
@@ -27,7 +27,7 @@ void CTreeEx::OnPaint()
 	GetClientRect(&rc);
 	CMemDC memDC(dc, rc);
 	CDC& rDC = memDC.GetDC();
-	rDC.GetClipBox(&rc);
+	rDC.GetClipBox(rc);
 	rDC.FillSolidRect(rc, RGB(255,255,255));
 
 	DefWindowProcW(WM_PAINT, reinterpret_cast<WPARAM>(rDC.m_hDC), static_cast<LPARAM>(0));
@@ -35,12 +35,11 @@ void CTreeEx::OnPaint()
 
 BOOL CTreeEx::OnEraseBkgnd(CDC* /*pDC*/)
 {
-	return FALSE;
+	return TRUE;
 }
 
 void CTreeEx::OnKillFocus(CWnd* pNewWnd)
 {
-//	CTreeCtrl::OnKillFocus(pNewWnd);
 }
 
 void CTreeEx::OnLButtonDown(UINT nFlags, CPoint point)

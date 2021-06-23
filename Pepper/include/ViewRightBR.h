@@ -1,5 +1,5 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
@@ -11,45 +11,45 @@
 #include "PepperDoc.h"
 #include "ChildFrm.h"
 #include "ListEx/ListEx.h"
-#include "constants.h"
+#include "Utility.h"
 
 using namespace LISTEX;
 
-class CWndSampledlg : public CWnd
+class CWndSampledlg final : public CWnd
 {
 public:
 	void Attach(CImageList* pImgList, CChildFrame* pChildFrame);
 	void SetDlgVisible(bool fVisible);
 	DECLARE_MESSAGE_MAP()
 private:
-	afx_msg void OnPaint();	
+	afx_msg void OnPaint();
 	afx_msg void OnClose();
 private:
 	CImageList* m_pImgRes { };
 	CChildFrame* m_pChildFrame { };
 };
 
-class CViewRightBR : public CScrollView
+class CViewRightBR final : public CScrollView
 {
 	DECLARE_DYNCREATE(CViewRightBR)
-protected:
-	virtual void OnDraw(CDC* pDC);      // overridden to draw this view
+	virtual void OnDraw(CDC* pDC);
+	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	virtual void OnInitialUpdate();     // first time after construct
 	afx_msg void OnSize(UINT nType, int cx, int cy);
-	virtual void OnUpdate(CView* /*pSender*/, LPARAM /*lHint*/, CObject* /*pHint*/);
-	void ShowResource(const SRESHELPER*);
+	virtual void OnUpdate(CView* pSender, LPARAM lHint, CObject* pHint);
 	void CreateIconCursor(const SRESHELPER* pResHelper);
 	void CreateBitmap(const SRESHELPER* pResHelper);
+	void CreateDebugEntry(DWORD dwEntry);
 	void CreateDlg(const SRESHELPER* pResHelper);
-	void ParceDlgTemplate(PBYTE pDataDlgRes, size_t nSize, std::wstring& wstrData);
 	void CreateStrings(const SRESHELPER* pResHelper);
 	void CreateGroupIconCursor(const SRESHELPER* pResHelper);
 	void CreateVersion(const SRESHELPER* pResHelper);
 	void CreateManifest(const SRESHELPER* pResHelper);
 	void CreateToolbar(const SRESHELPER* pResHelper);
 	int CreateListTLSCallbacks();
+	void ParceDlgTemplate(PBYTE pDataDlgRes, size_t nSize, std::wstring& wstrData);
 	void ResLoadError();
-	void CreateDebugEntry(DWORD dwEntry);
+	void ShowResource(const SRESHELPER*);
 	DECLARE_MESSAGE_MAP()
 private:
 	HWND m_hwndActive { };

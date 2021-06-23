@@ -1,5 +1,5 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
@@ -9,6 +9,8 @@
 #pragma once
 #include "ChildFrm.h"
 #include "PepperDoc.h"
+
+#define HEXCTRL_SHARED_DLL
 #include "HexCtrl.h"
 
 using namespace HEXCTRL;
@@ -34,5 +36,5 @@ private:
 	CFileLoader* m_pFileLoader { };
 	HWND m_hwndActive { };
 	IHexCtrlPtr m_stHexEdit { CreateHexCtrl() };
-	HEXCREATESTRUCT m_hcs { };
+	HEXCREATE m_hcs { };
 };

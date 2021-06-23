@@ -1,5 +1,5 @@
 /****************************************************************************************************
-* Copyright (C) 2018-2019, Jovibor: https://github.com/jovibor/										*
+* Copyright © 2018-2021 Jovibor https://github.com/jovibor/   										*
 * This software is available under the "MIT License".                                               *
 * https://github.com/jovibor/Pepper/blob/master/LICENSE												*
 * Pepper - PE (x86) and PE+ (x64) files viewer, based on libpe: https://github.com/jovibor/Pepper	*
@@ -14,12 +14,13 @@
 * at ones - as well.											*
 ****************************************************************/
 #pragma once
+#define HEXCTRL_SHARED_DLL
 #include "HexCtrl.h"
 
 using namespace HEXCTRL;
 
 class CPepperDoc;
-class CFileLoader : public CWnd
+class CFileLoader : public CWnd, public IHexVirtData
 {
 public:
 	//First function to call.
@@ -56,8 +57,8 @@ private:
 	bool m_fLoaded { false };
 	CPepperDoc* m_pMainDoc { };
 	IHexCtrlPtr m_pHex { CreateHexCtrl() };
-	HEXCREATESTRUCT m_hcs;
-	HEXDATASTRUCT m_hds;
+	HEXCREATE m_hcs;
+	HEXDATA m_hds;
 	LARGE_INTEGER m_stFileSize { };	 //Size of the loaded PE file.
 	HANDLE m_hFile { };
 	HANDLE m_hMapObject { };	     //Returned by CreateFileMappingW.
@@ -73,7 +74,8 @@ private:
 	bool m_fModified { false };
 	bool m_fWritable { false };
 private:
-	std::byte* GetData(HWND hWnd, ULONGLONG ullOffset); //For Virtual HexCtrl retrives next byte on demand.
+	void OnHexGetData(HEXDATAINFO& hdi)override; //For Virtual HexCtrl retrives next byte on demand.
+	void OnHexSetData(const HEXDATAINFO& hdi)override;
 	HRESULT MapFileOffset(QUERYDATA& rData, ULONGLONG ullOffset, DWORD dwSize = 0); //Main routine for mapping big file's parts.
 	HRESULT UnmapFileOffset(QUERYDATA& rData);
 	[[nodiscard]] bool IsLoaded()const;

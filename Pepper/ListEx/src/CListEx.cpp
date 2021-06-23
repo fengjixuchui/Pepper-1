@@ -123,26 +123,34 @@ bool CListEx::Create(const LISTEXCREATESTRUCT& lcs)
 	if (!m_stWndTtCell.CreateEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr, TTS_BALLOON | TTS_NOANIMATE | TTS_NOFADE | TTS_NOPREFIX | TTS_ALWAYSTIP,
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr))
 		return false;
-
 	SetWindowTheme(m_stWndTtCell, nullptr, L""); //To prevent Windows from changing theme of Balloon window.
-
 	m_stTInfoCell.cbSize = TTTOOLINFOW_V1_SIZE;
 	m_stTInfoCell.uFlags = TTF_TRACK;
-	m_stTInfoCell.uId = 0x1;
+	m_stTInfoCell.uId = 0x01;
 	m_stWndTtCell.SendMessageW(TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&m_stTInfoCell));
 	m_stWndTtCell.SendMessageW(TTM_SETMAXTIPWIDTH, 0, static_cast<LPARAM>(400)); //to allow use of newline \n.
 	m_stWndTtCell.SendMessageW(TTM_SETTIPTEXTCOLOR, static_cast<WPARAM>(m_stColors.clrTooltipText), 0);
 	m_stWndTtCell.SendMessageW(TTM_SETTIPBKCOLOR, static_cast<WPARAM>(m_stColors.clrTooltipBk), 0);
 
-	if (!m_stWndTtLink.CreateEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr, TTS_NOANIMATE | TTS_NOFADE | TTS_NOPREFIX | TTS_ALWAYSTIP,
+	if (!m_stWndTtLink.CreateEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr, TTS_NOPREFIX | TTS_ALWAYSTIP,
 		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr))
 		return false;
-
 	m_stTInfoLink.cbSize = TTTOOLINFOW_V1_SIZE;
 	m_stTInfoLink.uFlags = TTF_TRACK;
-	m_stTInfoLink.uId = 0x2;
+	m_stTInfoLink.uId = 0x02;
 	m_stWndTtLink.SendMessageW(TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&m_stTInfoLink));
 	m_stWndTtLink.SendMessageW(TTM_SETMAXTIPWIDTH, 0, static_cast<LPARAM>(400)); //to allow use of newline \n.
+
+	if (m_fHighLatency) //Tooltip for HighLatency mode.
+	{
+		if (!m_stWndTtRow.CreateEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr, TTS_NOANIMATE | TTS_NOFADE | TTS_NOPREFIX | TTS_ALWAYSTIP,
+			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_hWnd, nullptr))
+			return false;
+		m_stToolInfoRow.cbSize = TTTOOLINFOW_V1_SIZE;
+		m_stToolInfoRow.uFlags = TTF_TRACK;
+		m_stToolInfoRow.uId = 0x03;
+		m_stWndTtRow.SendMessageW(TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&m_stToolInfoRow));
+	}
 
 	m_dwGridWidth = lcs.dwListGridWidth;
 
@@ -957,6 +965,22 @@ void CListEx::TtCellHide()
 	KillTimer(ID_TIMER_TT_CELL_CHECK);
 }
 
+void CListEx::TtRowShow(bool fShow, UINT uRow)
+{
+	if (fShow)
+	{
+		CPoint ptScreen;
+		GetCursorPos(&ptScreen);
+
+		static wchar_t warrOffset[32] { L"Row: " };
+		swprintf_s(&warrOffset[5], 24, L"%u", uRow);
+		m_stToolInfoRow.lpszText = warrOffset;
+		m_stWndTtRow.SendMessageW(TTM_TRACKPOSITION, 0, static_cast<LPARAM>(MAKELONG(ptScreen.x - 5, ptScreen.y - 20)));
+		m_stWndTtRow.SendMessageW(TTM_UPDATETIPTEXT, 0, reinterpret_cast<LPARAM>(&m_stToolInfoRow));
+	}
+	m_stWndTtRow.SendMessageW(TTM_TRACKACTIVATE, static_cast<WPARAM>(fShow), reinterpret_cast<LPARAM>(&m_stToolInfoRow));
+}
+
 void CListEx::MeasureItem(LPMEASUREITEMSTRUCT lpMIS)
 {
 	//Set row height according to current font's height.
@@ -973,23 +997,24 @@ void CListEx::DrawItem(LPDRAWITEMSTRUCT pDIS)
 	if (pDIS->itemID == -1)
 		return;
 
-	auto pDC = CDC::FromHandle(pDIS->hDC);
-	pDC->SelectObject(m_penGrid);
-	pDC->SelectObject(m_fontList);
-	const COLORREF clrBkCurrRow = (pDIS->itemID % 2) ? m_stColors.clrListBkRow2 : m_stColors.clrListBkRow1;
-
 	switch (pDIS->itemAction)
 	{
 	case ODA_SELECT:
 	case ODA_DRAWENTIRE:
 	{
+		const auto pDC = CDC::FromHandle(pDIS->hDC);
+		const auto clrBkCurrRow = (pDIS->itemID % 2) ? m_stColors.clrListBkRow2 : m_stColors.clrListBkRow1;
 		const auto iColumns = GetHeaderCtrl().GetItemCount();
+
 		for (auto iColumn = 0; iColumn < iColumns; ++iColumn)
 		{
 			if (GetHeaderCtrl().IsColumnHidden(iColumn))
 				continue;
 
-			COLORREF clrText, clrBk, clrTextLink;
+			COLORREF clrText;
+			COLORREF clrBk;
+			COLORREF clrTextLink;
+
 			//Subitems' draw routine. 
 			//Colors depending on whether subitem selected or not, and has tooltip or not.
 			if (pDIS->itemState & ODS_SELECTED)
@@ -1038,7 +1063,6 @@ void CListEx::DrawItem(LPDRAWITEMSTRUCT pDIS)
 						pDC, iter.iIconIndex, { iter.rect.left, iter.rect.top }, { }, CLR_NONE, CLR_NONE, ILD_NORMAL);
 					continue;
 				}
-
 				if (iter.fLink)
 				{
 					pDC->SetTextColor(clrTextLink);
@@ -1054,7 +1078,8 @@ void CListEx::DrawItem(LPDRAWITEMSTRUCT pDIS)
 					rcText, iter.wstrText.data(), static_cast<UINT>(iter.wstrText.size()), nullptr);
 			}
 
-			//Drawing subitem's rect lines. 
+			//Drawing subitem's rect lines.
+			pDC->SelectObject(m_penGrid);
 			pDC->MoveTo(rcBounds.TopLeft());
 			pDC->LineTo(rcBounds.right, rcBounds.top);
 			pDC->MoveTo(rcBounds.TopLeft());
@@ -1063,6 +1088,10 @@ void CListEx::DrawItem(LPDRAWITEMSTRUCT pDIS)
 			pDC->LineTo(rcBounds.BottomRight());
 			pDC->MoveTo(rcBounds.right, rcBounds.top);
 			pDC->LineTo(rcBounds.BottomRight());
+
+			//Draw focus rect (marquee).
+			if ((pDIS->itemState & ODS_FOCUS) && !(pDIS->itemState & ODS_SELECTED))
+				pDC->DrawFocusRect(rcBounds);
 		}
 	}
 	break;
@@ -1078,6 +1107,7 @@ BOOL CListEx::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 		SetFontSize(GetFontSize() + zDelta / WHEEL_DELTA * 2);
 		return TRUE;
 	}
+
 	GetHeaderCtrl().RedrawWindow();
 
 	return CMFCListCtrl::OnMouseWheel(nFlags, zDelta, pt);
@@ -1085,9 +1115,8 @@ BOOL CListEx::OnMouseWheel(UINT nFlags, short zDelta, CPoint pt)
 
 void CListEx::OnMouseMove(UINT /*nFlags*/, CPoint pt)
 {
-	LVHITTESTINFO hi { };
-	hi.pt = pt;
-	ListView_SubItemHitTest(m_hWnd, &hi);
+	LVHITTESTINFO hi { pt };
+	SubItemHitTest(&hi);
 
 	bool fLink { false }; //Cursor at link's rect area.
 	auto vecText = ParseItemText(hi.iItem, hi.iSubItem);
@@ -1159,20 +1188,18 @@ void CListEx::OnMouseMove(UINT /*nFlags*/, CPoint pt)
 
 void CListEx::OnLButtonDown(UINT nFlags, CPoint pt)
 {
-	LVHITTESTINFO hi { };
-	hi.pt = pt;
-	ListView_SubItemHitTest(m_hWnd, &hi);
-	if (hi.iSubItem == -1 || hi.iItem == -1)
-		return;
-
 	bool fLinkDown { false };
-	auto vecText = ParseItemText(hi.iItem, hi.iSubItem);
-	if (const auto iterFind = std::find_if(vecText.begin(), vecText.end(), [&](SITEMDATA& iter)
-		{ return iter.fLink && iter.rect.PtInRect(pt); }); iterFind != vecText.end())
+	LVHITTESTINFO hi { pt };
+	if (SubItemHitTest(&hi) != -1)
 	{
-		m_fLDownAtLink = true;
-		m_rcLinkCurr = iterFind->rect;
-		fLinkDown = true;
+		auto vecText = ParseItemText(hi.iItem, hi.iSubItem);
+		if (const auto iterFind = std::find_if(vecText.begin(), vecText.end(), [&](SITEMDATA& iter)
+			{ return iter.fLink && iter.rect.PtInRect(pt); }); iterFind != vecText.end())
+		{
+			m_fLDownAtLink = true;
+			m_rcLinkCurr = iterFind->rect;
+			fLinkDown = true;
+		}
 	}
 
 	if (!fLinkDown)
@@ -1266,7 +1293,7 @@ void CListEx::OnTimer(UINT_PTR nIDEvent)
 	}
 }
 
-BOOL CListEx::OnSetCursor(CWnd * pWnd, UINT nHitTest, UINT message)
+BOOL CListEx::OnSetCursor(CWnd* pWnd, UINT nHitTest, UINT message)
 {
 	return CMFCListCtrl::OnSetCursor(pWnd, nHitTest, message);
 }
@@ -1298,7 +1325,7 @@ void CListEx::OnPaint()
 	DefWindowProcW(WM_PAINT, reinterpret_cast<WPARAM>(rDC.m_hDC), static_cast<LPARAM>(0));
 }
 
-void CListEx::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar * pScrollBar)
+void CListEx::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
 {
 	if (m_fVirtual && m_fHighLatency)
 	{
@@ -1317,6 +1344,7 @@ void CListEx::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar * pScrollBar)
 				Scroll(size);
 				flag = false;
 			}
+			TtRowShow(false, 0);
 			CMFCListCtrl::OnVScroll(nSBCode, nPos, pScrollBar);
 		}
 		else
@@ -1327,20 +1355,21 @@ void CListEx::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar * pScrollBar)
 			si.fMask = SIF_ALL;
 			GetScrollInfo(SB_VERT, &si);
 			uItem = si.nTrackPos; //si.nTrackPos is in fact a row number.
+			TtRowShow(true, uItem);
 		}
 	}
 	else
 		CMFCListCtrl::OnVScroll(nSBCode, nPos, pScrollBar);
 }
 
-void CListEx::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar * pScrollBar)
+void CListEx::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
 {
 	GetHeaderCtrl().RedrawWindow();
 
 	CMFCListCtrl::OnHScroll(nSBCode, nPos, pScrollBar);
 }
 
-BOOL CListEx::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT * pResult)
+BOOL CListEx::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
 {
 	if (!m_fCreated)
 		return FALSE;
@@ -1374,21 +1403,21 @@ BOOL CListEx::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT * pResult)
 void CListEx::OnLvnColumnClick(NMHDR* /*pNMHDR*/, LRESULT* /*pResult*/)
 {
 	/*******************************************************************************
-	* Just an empty handler. 
-	* Without it all works fine, but assert triggers in Debug mode, when clicking 
+	* Just an empty handler.
+	* Without it all works fine, but assert triggers in Debug mode, when clicking
 	* on header, if list is in Virtual mode (LVS_OWNERDATA).
 	* ASSERT((GetStyle() & LVS_OWNERDATA)==0)
 	*******************************************************************************/
 }
 
-void CListEx::OnHdnBegindrag(NMHDR * pNMHDR, LRESULT * pResult)
+void CListEx::OnHdnBegindrag(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	const auto phdr = reinterpret_cast<LPNMHEADERW>(pNMHDR);
 	if (GetHeaderCtrl().IsColumnHidden(phdr->iItem))
 		*pResult = TRUE;
 }
 
-void CListEx::OnHdnBegintrack(NMHDR * pNMHDR, LRESULT * pResult)
+void CListEx::OnHdnBegintrack(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	const auto phdr = reinterpret_cast<LPNMHEADERW>(pNMHDR);
 	if (GetHeaderCtrl().IsColumnHidden(phdr->iItem))
@@ -1401,6 +1430,7 @@ void CListEx::OnDestroy()
 
 	m_stWndTtCell.DestroyWindow();
 	m_stWndTtLink.DestroyWindow();
+	m_stWndTtRow.DestroyWindow();
 	m_fontList.DeleteObject();
 	m_fontListUnderline.DeleteObject();
 	m_penGrid.DeleteObject();
